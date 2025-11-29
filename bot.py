@@ -42,12 +42,12 @@ async def on_command_error(ctx: commands.Context, error: commands.CommandError):
     if isinstance(error, commands.CommandNotFound):
         return
     elif isinstance(error, commands.MissingPermissions):
-        await ctx.send("❌ You don't have permission to use this command.")
+        await ctx.send("You don't have permission to use this command.")
     elif isinstance(error, commands.MissingRequiredArgument):
-        await ctx.send(f"❌ Missing required argument: {error.param.name}")
+        await ctx.send(f"Missing required argument: {error.param.name}")
     else:
         logger.error(f"Command error: {error}", exc_info=True)
-        await ctx.send("❌ An error occurred while processing the command.")
+        await ctx.send("An error occurred while processing the command.")
 
 async def load_extensions():
     """Load all cogs."""
