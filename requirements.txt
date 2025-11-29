@@ -1,0 +1,5 @@
+discord.py>=2.3.2
+python-dotenv>=1.0.0
+transformers>=4.35.0
+torch>=2.0.0
+aiohttp>=3.9.0
