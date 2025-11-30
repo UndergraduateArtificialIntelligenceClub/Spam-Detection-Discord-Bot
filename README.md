@@ -342,7 +342,7 @@ aiohttp>=3.9.0
 
 ## License
 
-This project is open-source. Feel free to modify and distribute as needed.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## Next Steps
 
