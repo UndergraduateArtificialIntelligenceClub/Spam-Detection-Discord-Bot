@@ -2,8 +2,14 @@ import discord
 from discord.ext import commands
 from datetime import datetime
 from typing import Optional
-from utils.scam_detector import ScamDetector
-from utils.logger import setup_logger
+import sys
+from pathlib import Path
+
+# Add parent directory to path so we can import from root
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from scam_detector import ScamDetector
+from logger import setup_logger
 from config import Config
 
 logger = setup_logger(__name__)
@@ -22,26 +28,37 @@ class ModerationCog(commands.Cog):
     async def on_message(self, message: discord.Message):
         """Monitor all messages for scam content."""
         
+        logger.info(f"[DEBUG] Received message from {message.author.name}: {message.content[:80]}")
+        
         # Ignore bot messages
         if message.author.bot:
+            logger.info("[DEBUG] Ignoring bot message")
             return
         
         # Ignore commands
         if message.content.startswith(self.bot.command_prefix):
+            logger.info("[DEBUG] Ignoring command")
             return
         
         # Check if user has whitelisted role
         if isinstance(message.author, discord.Member):
             user_roles = [role.name for role in message.author.roles]
+            logger.info(f"[DEBUG] User roles: {user_roles}")
             if any(role in self.whitelisted_roles for role in user_roles):
+                logger.info("[DEBUG] User has whitelisted role, skipping")
                 return
         
         try:
+            logger.info(f"[DEBUG] Analyzing message: {message.content[:100]}")
             # Detect scam
             is_scam, confidence, reason = self.scam_detector.detect(message.content)
+            logger.info(f"[DEBUG] Detection result: is_scam={is_scam}, confidence={confidence:.2%}, reason={reason}")
             
             if is_scam:
+                logger.warning(f"[SCAM DETECTED] Processing message from {message.author.name}")
                 await self._handle_scam_message(message, confidence, reason)
+            else:
+                logger.info("[DEBUG] Message is clean")
                 
         except Exception as e:
             logger.error(f"Error processing message: {e}", exc_info=True)
@@ -124,11 +141,18 @@ class ModerationCog(commands.Cog):
             if member.avatar:
                 embed.set_thumbnail(url=member.avatar.url)
             
-            # Ping server owner
-            owner_mention = message.guild.owner.mention if message.guild.owner else ""
+            # Ping moderator role
+            mod_role = message.guild.get_role(Config.MODERATOR_ROLE_ID)
+            
+            if mod_role:
+                role_mention = mod_role.mention
+                content = f"{role_mention} Spam detected!"
+            else:
+                logger.warning(f"Moderator role {Config.MODERATOR_ROLE_ID} not found")
+                content = "Spam detected!"
             
             await log_channel.send(
-                content=owner_mention,
+                content=content,
                 embed=embed
             )
             

@@ -6,6 +6,7 @@ load_dotenv()
 class Config:
     DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
     LOG_CHANNEL_ID = int(os.getenv('LOG_CHANNEL_ID', 0))
+    MODERATOR_ROLE_ID = int(os.getenv('MODERATOR_ROLE_ID', 0))
     
     MODEL_NAME = os.getenv('MODEL_NAME', 'mrm8488/bert-tiny-finetuned-sms-spam-detection')
     SCAM_THRESHOLD = float(os.getenv('SCAM_THRESHOLD', 0.85))
@@ -18,5 +19,7 @@ class Config:
             raise ValueError("DISCORD_TOKEN is required in .env file")
         if cls.LOG_CHANNEL_ID == 0:
             raise ValueError("LOG_CHANNEL_ID is required in .env file")
+        if cls.MODERATOR_ROLE_ID == 0:
+            raise ValueError("MODERATOR_ROLE_ID is required in .env file")
         
         return True
