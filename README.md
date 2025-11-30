@@ -307,7 +307,7 @@ See [Hugging Face Fine-tuning Guide](https://huggingface.co/docs/transformers/tr
 ## Performance
 
 - **Model Size:** ~18MB (tiny BERT)
-- **Inference Time:** 0.5-2 seconds per message
+- **Inference Time:** 0.1-0.3 seconds per message
 - **Accuracy:** ~92-96% on spam detection tasks
 - **Memory:** ~100-200MB RAM
 - **CPU:** Can run on standard CPU
