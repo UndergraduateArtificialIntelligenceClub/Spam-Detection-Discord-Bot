@@ -4,12 +4,18 @@ from datetime import datetime
 from typing import Optional
 import sys
 from pathlib import Path
+import pytz
 
 from utils.scam_detector import ScamDetector
 from utils.logger import setup_logger
 from config import Config
 
+# Initialize logger
 logger = setup_logger(__name__)
+
+# Set timezone to Edmonton
+LOCAL_TZ = pytz.timezone('America/Edmonton')
+
 class ModerationCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -70,15 +76,18 @@ class ModerationCog(commands.Cog):
         member = message.author
         guild = message.guild
         
+        # Store original message time in Edmonton timezone
+        message_sent_time = message.created_at.astimezone(LOCAL_TZ).strftime("%Y-%m-%d %H:%M:%S %Z")
+        
         logger.warning(
             f"Scam detected from {member.name}#{member.discriminator} "
-            f"({member.id}) with confidence {confidence:.2%}"
+            f"({member.id}) with confidence {confidence:.2%} at {message_sent_time}"
         )
         
         # Get join date
         joined_at = "Unknown"
         if isinstance(member, discord.Member) and member.joined_at:
-            joined_at = member.joined_at.strftime("%Y-%m-%d %H:%M:%S UTC")
+            joined_at = member.joined_at.astimezone(LOCAL_TZ).strftime("%Y-%m-%d %H:%M:%S %Z")
         
         # Delete the message
         try:
@@ -92,7 +101,7 @@ class ModerationCog(commands.Cog):
             return
         
         # Send log to private channel
-        await self._send_log(message, member, joined_at, confidence, reason)
+        await self._send_log(message, member, joined_at, confidence, reason, message_sent_time)
     
     async def _send_log(
         self,
@@ -100,7 +109,8 @@ class ModerationCog(commands.Cog):
         member: discord.Member,
         joined_at: str,
         confidence: float,
-        reason: str
+        reason: str,
+        message_sent_time: str
     ):
         """Send log to the private logging channel."""
         
@@ -111,10 +121,13 @@ class ModerationCog(commands.Cog):
             return
         
         try:
+            # Get current detection time in Edmonton timezone
+            detected_at = datetime.now(LOCAL_TZ).strftime("%Y-%m-%d %H:%M:%S %Z")
+            
             embed = discord.Embed(
                 title="🚨 Scam Message Deleted",
                 color=discord.Color.red(),
-                timestamp=datetime.utcnow()
+                timestamp=datetime.now(LOCAL_TZ)
             )
             
             embed.add_field(
@@ -127,6 +140,11 @@ class ModerationCog(commands.Cog):
             embed.add_field(name="Detection Method", value=reason, inline=False)
             embed.add_field(name="Confidence", value=f"{confidence:.2%}", inline=True)
             embed.add_field(name="Channel", value=message.channel.mention, inline=True)
+            
+            # Add timestamps
+            embed.add_field(name="Message Sent", value=message_sent_time, inline=True)
+            embed.add_field(name="Detected At", value=detected_at, inline=True)
+            
             embed.add_field(
                 name="Message Content",
                 value=message.content[:1024] if message.content else "*No content*",

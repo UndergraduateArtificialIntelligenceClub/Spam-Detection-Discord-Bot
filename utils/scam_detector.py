@@ -32,11 +32,10 @@ class ScamDetector:
         score = result['score']
         label = result['label']
         
-        # Map numeric labels to text labels
-        # LABEL_0 = HAM (legitimate), LABEL_1 = SPAM (scam)
+        # Map numeric labels to text
         label_map = {
-            'LABEL_0': 'HAM',
-            'LABEL_1': 'SPAM'
+            'LABEL_0': 'HAM',   # Legitimate message
+            'LABEL_1': 'SPAM'   # Spam/Scam message
         }
         label = label_map.get(label, label).upper()
         
@@ -46,19 +45,28 @@ class ScamDetector:
         # DEBUG OUTPUT
         print(f"\n[DETECTOR] Label: {label} | Score: {score:.4f} | Suspicious: {has_suspicious}")
         print(f"[DETECTOR] Threshold: {Config.SCAM_THRESHOLD}")
-        print(f"[DETECTOR] Check 1 (SPAM/SCAM + score > threshold): {label in ['SPAM', 'SCAM']} and {score > Config.SCAM_THRESHOLD}")
-        print(f"[DETECTOR] Check 2 (score > 0.6 + suspicious): {score > 0.6} and {has_suspicious}\n")
+        print(f"[DETECTOR] Check 1 (label=SPAM AND score > threshold): {label == 'SPAM'} and {score > Config.SCAM_THRESHOLD}")
+        print(f"[DETECTOR] Check 2 (label=SPAM AND score > 0.6 AND suspicious): {label == 'SPAM'} and {score > 0.6} and {has_suspicious}")
+        print(f"[DETECTOR] Check 3 (label=HAM AND suspicious): {label == 'HAM'} and {has_suspicious}\n")
         
         # Determine if it's a scam
         is_scam = False
         reason = ""
         
-        if label in ['SPAM', 'SCAM'] and score > Config.SCAM_THRESHOLD:
+        # Check 1: Model confidently says SPAM
+        if label == 'SPAM' and score > Config.SCAM_THRESHOLD:
             is_scam = True
             reason = f"ML Detection ({score:.2%})"
-        elif score > 0.6 and has_suspicious:
+        
+        # Check 2: Model says SPAM + medium confidence + patterns
+        elif label == 'SPAM' and score > 0.6 and has_suspicious:
             is_scam = True
             reason = f"ML Detection + Suspicious Patterns ({score:.2%})"
+        
+        # Check 3: Model says HAM BUT has strong suspicious patterns
+        elif label == 'HAM' and has_suspicious:
+            is_scam = True
+            reason = f"Pattern Detection (Model disagreed)"
         
         return is_scam, score, reason
     
