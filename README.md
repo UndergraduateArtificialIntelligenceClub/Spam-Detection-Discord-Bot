@@ -62,6 +62,7 @@ DISCORD_TOKEN=your_bot_token_here
 # Create a private channel, right-click → Copy Channel ID
 LOG_CHANNEL_ID=123456789012345678
 
+MODERATOR_ROLE_ID=987654321  # Your role ID here
 # Machine learning model to use
 MODEL_NAME=mrm8488/bert-tiny-finetuned-sms-spam-detection
 
