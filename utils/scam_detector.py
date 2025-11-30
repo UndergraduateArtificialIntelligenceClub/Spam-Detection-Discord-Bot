@@ -46,17 +46,20 @@ class ScamDetector:
         # DEBUG OUTPUT
         print(f"\n[DETECTOR] Label: {label} | Score: {score:.4f} | Suspicious: {has_suspicious}")
         print(f"[DETECTOR] Threshold: {Config.SCAM_THRESHOLD}")
-        print(f"[DETECTOR] Check (label=SPAM AND score > threshold AND suspicious): {label == 'SPAM'} and {score > Config.SCAM_THRESHOLD} and {has_suspicious}\n")
+        print(f"[DETECTOR] Check 1 (label=SPAM AND score > threshold): {label == 'SPAM'} and {score > Config.SCAM_THRESHOLD}")
+        print(f"[DETECTOR] Check 2 (label=SPAM AND score > 0.9 AND suspicious): {label == 'SPAM'} and {score > 0.9} and {has_suspicious}\n")
 
         # Determine if it's a scam
         is_scam = False
         reason = ""
 
-        # Only flag as scam if ALL conditions are met:
-        # 1. Model says SPAM (label=SPAM)
-        # 2. High confidence (score > threshold)
-        # 3. AND has suspicious patterns (to reduce false positives)
-        if label == 'SPAM' and score > Config.SCAM_THRESHOLD and has_suspicious:
+        # Check 1: Model confidently says SPAM above threshold
+        if label == 'SPAM' and score > Config.SCAM_THRESHOLD:
+            is_scam = True
+            reason = f"ML Detection ({score:.2%})"
+
+        # Check 2: Model says SPAM with very high confidence (0.9) AND has suspicious patterns
+        elif label == 'SPAM' and score > 0.9 and has_suspicious:
             is_scam = True
             reason = f"ML Detection + Suspicious Patterns ({score:.2%})"
 
