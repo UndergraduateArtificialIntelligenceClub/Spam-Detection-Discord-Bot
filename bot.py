@@ -3,7 +3,6 @@ from discord.ext import commands
 import asyncio
 from config import Config
 from utils.logger import setup_logger
-
 # Validate configuration
 Config.validate()
 

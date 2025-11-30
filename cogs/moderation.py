@@ -5,15 +5,11 @@ from typing import Optional
 import sys
 from pathlib import Path
 
-# Add parent directory to path so we can import from root
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-from scam_detector import ScamDetector
-from logger import setup_logger
+from utils.scam_detector import ScamDetector
+from utils.logger import setup_logger
 from config import Config
 
 logger = setup_logger(__name__)
-
 class ModerationCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
