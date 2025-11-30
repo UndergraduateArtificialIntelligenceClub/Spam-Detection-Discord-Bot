@@ -45,28 +45,15 @@ class ScamDetector:
         # DEBUG OUTPUT
         print(f"\n[DETECTOR] Label: {label} | Score: {score:.4f} | Suspicious: {has_suspicious}")
         print(f"[DETECTOR] Threshold: {Config.SCAM_THRESHOLD}")
-        print(f"[DETECTOR] Check 1 (label=SPAM AND score > threshold): {label == 'SPAM'} and {score > Config.SCAM_THRESHOLD}")
-        print(f"[DETECTOR] Check 2 (label=SPAM AND score > 0.6 AND suspicious): {label == 'SPAM'} and {score > 0.6} and {has_suspicious}")
-        print(f"[DETECTOR] Check 3 (label=HAM AND suspicious): {label == 'HAM'} and {has_suspicious}\n")
+        print(f"[DETECTOR] Check 1 (label=SPAM AND score > threshold AND suspicious): {label == 'SPAM'} and {score > Config.SCAM_THRESHOLD} and {has_suspicious}\n")
         
         # Determine if it's a scam
         is_scam = False
         reason = ""
         
-        # Check 1: Model confidently says SPAM
-        if label == 'SPAM' and score > Config.SCAM_THRESHOLD:
-            is_scam = True
-            reason = f"ML Detection ({score:.2%})"
-        
-        # Check 2: Model says SPAM + medium confidence + patterns
-        elif label == 'SPAM' and score > 0.6 and has_suspicious:
+       if label == 'SPAM' and score > Config.SCAM_THRESHOLD and has_suspicious:
             is_scam = True
             reason = f"ML Detection + Suspicious Patterns ({score:.2%})"
-        
-        # Check 3: Model says HAM BUT has strong suspicious patterns
-        elif label == 'HAM' and has_suspicious:
-            is_scam = True
-            reason = f"Pattern Detection (Model disagreed)"
         
         return is_scam, score, reason
     
@@ -90,15 +77,20 @@ class ScamDetector:
             r'(?:free|instant).*crypto',
             
             # ===== GIVEAWAY SCAMS =====
-            r'giveaway|give.*away|claim.*prize|win.*(?:ps5|xbox|macbook|laptop)',
+            r'giving\s+away|giveaway',
+            r'give.*away|claim.*prize|win.*(?:ps5|xbox|macbook|laptop)',
             r'limited.*slots?|first.*(?:people|members|users)',
-            r'free.*(?:ps5|xbox|iphone|macbook|steam|air)',
+            r'free.*(?:ps5|xbox|iphone|macbook|steam|air|monitor|laptop|ipad)',
+            r'free.*come.*served|first.*come.*free',
             
             # ===== GIVEAWAY + DM PATTERN =====
             r'@everyone.*free|free.*@everyone',
+            r'@here.*free|free.*@here',
             r'free.*(?:dm|message|dm\s+me)',
             r'giveaway.*dm|dm.*giveaway',
             r'(?:dm|message).*(?:interested|if|you)',
+            r'dm\s+(?:if|me|interested)',
+            r'message\s+(?:if|me|interested)',
             
             # ===== PHISHING SCAMS =====
             r'verify.*account|confirm.*account|validate.*account',
@@ -110,6 +102,7 @@ class ScamDetector:
             r'get\s+paid|earn.*money|quick.*cash|make.*money.*fast',
             r'beta.*(?:tester|test)|testing.*paid|paid.*test',
             r'\$.*(?:guarantee|guaranteed)',
+            r'paid.*(?:dm|message)|(?:dm|message).*paid',
             
             # ===== COMMON SCAM TACTICS =====
             r'act now|hurry|limited time|don\'t miss|only.*(?:slots?|spots?|available)',
