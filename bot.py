@@ -17,7 +17,7 @@ intents.members = True
 bot = commands.Bot(
     command_prefix='!',
     intents=intents,
-    help_command=commands.DefaultHelpCommand()
+    help_command = None # commands.DefaultHelpCommand()
 )
 
 @bot.event

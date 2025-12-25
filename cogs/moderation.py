@@ -211,13 +211,20 @@ class ModerationCog(commands.Cog):
             await log_message.edit(embed=updated_embed)
             await log_message.clear_reactions()
             
-            # Send confirmation to moderator
-            await moderator.send(
-                f"✅ False alarm reported successfully!\n"
-                f"- Message restored to {original_channel.mention}\n"
-                f"- Stats updated (Total false alarms: {self.stats_tracker.overall_stats['total_false_alarms']})\n"
-                f"- User: {original_user.mention}"
+            # Send confirmation to log channel (not DM)
+            confirmation_embed = discord.Embed(
+                title="✅ False Alarm Processed",
+                description=(
+                    f"**Reported by:** {moderator.mention}\n"
+                    f"**Original User:** {original_user.mention}\n"
+                    f"**Message restored to:** {original_channel.mention}\n"
+                    f"**Total False Alarms:** {self.stats_tracker.overall_stats['total_false_alarms']}"
+                ),
+                color=discord.Color.green(),
+                timestamp=datetime.now(LOCAL_TZ)
             )
+            
+            await log_message.channel.send(embed=confirmation_embed)
             
             # Remove from tracking
             del self.flagged_messages[log_message.id]
@@ -489,6 +496,266 @@ class ModerationCog(commands.Cog):
             embed.add_field(name="Detection Methods", value=method_breakdown, inline=False)
         
         embed.set_footer(text="Use this dataset to fine-tune your spam detection model")
+        
+        await ctx.send(embed=embed)
+    
+    @commands.command(name='clear_stats')
+    @commands.has_permissions(administrator=True)
+    async def clear_stats(self, ctx: commands.Context, scope: str = None):
+        """
+        Clear bot statistics (Admin only).
+        
+        Usage:
+            !clear_stats session  - Clear only current session stats
+            !clear_stats overall  - Clear overall/persistent stats
+            !clear_stats all      - Clear everything (session + overall)
+        
+        Note: CSV dataset is NEVER affected by this command.
+        """
+        
+        if not scope or scope.lower() not in ['session', 'overall', 'all']:
+            embed = discord.Embed(
+                title="❌ Invalid Usage",
+                description=(
+                    "Please specify what to clear:\n"
+                    "`!clear_stats session` - Clear current session only\n"
+                    "`!clear_stats overall` - Clear overall stats only\n"
+                    "`!clear_stats all` - Clear both session and overall\n\n"
+                    "**Note:** The CSV training dataset is never affected."
+                ),
+                color=discord.Color.red()
+            )
+            await ctx.send(embed=embed)
+            return
+        
+        scope = scope.lower()
+        
+        # Create confirmation message
+        confirm_embed = discord.Embed(
+            title="⚠️ Confirm Stats Clear",
+            color=discord.Color.orange()
+        )
+        
+        if scope == 'session':
+            confirm_embed.description = (
+                "This will reset **current session** statistics:\n"
+                "• Session messages analyzed\n"
+                "• Session messages flagged\n"
+                "• Session uptime\n\n"
+                "**Overall stats and CSV dataset will NOT be affected.**"
+            )
+        elif scope == 'overall':
+            confirm_embed.description = (
+                "This will reset **overall/persistent** statistics:\n"
+                "• Total messages analyzed (all-time)\n"
+                "• Total messages flagged (all-time)\n"
+                "• Total false alarms (all-time)\n"
+                "• Accuracy metrics\n\n"
+                "**Session stats and CSV dataset will NOT be affected.**"
+            )
+        else:  # all
+            confirm_embed.description = (
+                "This will reset **ALL** statistics:\n"
+                "• Session stats\n"
+                "• Overall/persistent stats\n"
+                "• All counters will be reset to 0\n\n"
+                "**⚠️ WARNING: CSV dataset will NOT be affected.**\n"
+                "This only clears counters, not your training data."
+            )
+        
+        confirm_embed.add_field(
+            name="To Confirm",
+            value="React with ✅ to proceed or ❌ to cancel",
+            inline=False
+        )
+        
+        confirm_msg = await ctx.send(embed=confirm_embed)
+        await confirm_msg.add_reaction("✅")
+        await confirm_msg.add_reaction("❌")
+        
+        def check(reaction, user):
+            return user == ctx.author and str(reaction.emoji) in ["✅", "❌"] and reaction.message.id == confirm_msg.id
+        
+        try:
+            reaction, user = await self.bot.wait_for('reaction_add', timeout=30.0, check=check)
+            
+            if str(reaction.emoji) == "✅":
+                # Perform the clear operation
+                if scope == 'session':
+                    self.stats_tracker.session_start_time = datetime.now(LOCAL_TZ)
+                    self.stats_tracker.session_messages_analyzed = 0
+                    self.stats_tracker.session_messages_flagged = 0
+                    
+                    result_embed = discord.Embed(
+                        title="✅ Session Stats Cleared",
+                        description="Current session statistics have been reset.",
+                        color=discord.Color.green()
+                    )
+                    
+                elif scope == 'overall':
+                    self.stats_tracker.overall_stats = {
+                        'total_messages_analyzed': 0,
+                        'total_messages_flagged': 0,
+                        'total_false_alarms': 0,
+                        'first_started': datetime.now(LOCAL_TZ).isoformat(),
+                        'last_updated': datetime.now(LOCAL_TZ).isoformat()
+                    }
+                    self.stats_tracker._save_overall_stats()
+                    
+                    result_embed = discord.Embed(
+                        title="✅ Overall Stats Cleared",
+                        description="Overall/persistent statistics have been reset.",
+                        color=discord.Color.green()
+                    )
+                    
+                else:  # all
+                    # Clear session
+                    self.stats_tracker.session_start_time = datetime.now(LOCAL_TZ)
+                    self.stats_tracker.session_messages_analyzed = 0
+                    self.stats_tracker.session_messages_flagged = 0
+                    
+                    # Clear overall
+                    self.stats_tracker.overall_stats = {
+                        'total_messages_analyzed': 0,
+                        'total_messages_flagged': 0,
+                        'total_false_alarms': 0,
+                        'first_started': datetime.now(LOCAL_TZ).isoformat(),
+                        'last_updated': datetime.now(LOCAL_TZ).isoformat()
+                    }
+                    self.stats_tracker._save_overall_stats()
+                    
+                    result_embed = discord.Embed(
+                        title="✅ All Stats Cleared",
+                        description="All statistics (session + overall) have been reset.",
+                        color=discord.Color.green()
+                    )
+                
+                result_embed.add_field(
+                    name="📁 CSV Dataset Status",
+                    value="✅ Training dataset remains untouched and safe",
+                    inline=False
+                )
+                
+                await ctx.send(embed=result_embed)
+                logger.info(f"[STATS] {scope.upper()} stats cleared by {ctx.author.name}")
+                
+            else:
+                await ctx.send("❌ Stats clear cancelled. No changes made.")
+                
+        except Exception as e:
+            await ctx.send(f"⏱️ Stats clear timed out or error occurred: {e}")
+    
+    @commands.command(name='help', aliases=['commands', 'cmds', 'bothelp'])
+    async def show_help(self, ctx: commands.Context, category: str = None):
+        """
+        Show available bot commands organized by permission level.
+        
+        Usage:
+            !help              - Show all commands
+            !help admin        - Show admin-only commands
+            !help mod          - Show moderator commands
+            !help all          - Show all commands (same as no argument)
+            
+        Aliases: !commands, !cmds, !bothelp
+        """
+        
+        embed = discord.Embed(
+            title="🤖 Bot Command Reference",
+            color=discord.Color.blue(),
+            timestamp=datetime.now(LOCAL_TZ)
+        )
+        
+        # Determine what to show
+        show_all = not category or category.lower() in ['all', 'help']
+        show_admin = show_all or category.lower() == 'admin'
+        show_mod = show_all or category.lower() in ['mod', 'moderator']
+        
+        # Admin Commands
+        if show_admin:
+            admin_commands = (
+                "**`!check <text>`**\n"
+                "Manually test if text would be flagged as spam\n\n"
+                
+                "**`!stats`**\n"
+                "View comprehensive bot statistics (session + overall)\n\n"
+                
+                "**`!dataset_info`**\n"
+                "View training dataset details and size\n\n"
+                
+                "**`!clear_stats <session|overall|all>`**\n"
+                "Clear statistics (CSV dataset never affected)\n"
+                "• `session` - Current session only\n"
+                "• `overall` - Persistent stats only\n"
+                "• `all` - Everything\n\n"
+                
+                "**`!help [category]`**\n"
+                "Show this help message\n"
+                "Categories: `admin`, `mod`, `all`"
+            )
+            
+            embed.add_field(
+                name="👑 Administrator Commands",
+                value=admin_commands,
+                inline=False
+            )
+        
+        # Moderator Commands
+        if show_mod:
+            mod_commands = (
+                "**React with ❌ on log messages**\n"
+                "Mark a flagged message as false alarm\n"
+                "• Automatically restores the message\n"
+                "• Updates accuracy statistics\n"
+                "• Posts confirmation in log channel\n\n"
+                
+                "**Note:** Requires `Manage Messages` permission"
+            )
+            
+            embed.add_field(
+                name="🛡️ Moderator Actions",
+                value=mod_commands,
+                inline=False
+            )
+        
+        # Whitelisted Roles Info
+        if show_all:
+            whitelist_info = (
+                f"Users with these roles bypass spam detection:\n"
+                f"• {', '.join(self.whitelisted_roles)}\n\n"
+                "These roles are set in the bot configuration."
+            )
+            
+            embed.add_field(
+                name="⚪ Whitelisted Roles",
+                value=whitelist_info,
+                inline=False
+            )
+        
+        # Detection Info
+        if show_all:
+            detection_info = (
+                "**Methods:**\n"
+                "• ML Model Detection (BERT-based)\n"
+                "• Pattern Matching (Discord-specific scams)\n\n"
+                
+                "**What happens when spam is detected:**\n"
+                "1. Message is deleted immediately\n"
+                "2. User receives a DM notification\n"
+                "3. Log posted to moderator channel\n"
+                "4. Message saved to training dataset\n"
+                "5. Statistics updated"
+            )
+            
+            embed.add_field(
+                name="🔍 Spam Detection",
+                value=detection_info,
+                inline=False
+            )
+        
+        # Footer with tips
+        embed.set_footer(
+            text="Tip: React ❌ on any log message to mark as false alarm | Bot monitors all non-whitelisted messages"
+        )
         
         await ctx.send(embed=embed)
 
