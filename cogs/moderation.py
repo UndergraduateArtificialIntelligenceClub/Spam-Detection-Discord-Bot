@@ -1,12 +1,13 @@
 import discord
 from discord.ext import commands
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Dict
 import pytz
 
 from utils.scam_detector import ScamDetector
 from utils.logger import setup_logger
 from utils.dataset_logger import DatasetLogger
+from utils.stats_tracker import StatsTracker
 from config import Config
 
 # Initialize logger
@@ -21,7 +22,12 @@ class ModerationCog(commands.Cog):
         self.bot = bot
         self.scam_detector = ScamDetector()
         self.dataset_logger = DatasetLogger()
+        self.stats_tracker = StatsTracker()
         self.whitelisted_roles = ['Admin', 'Moderator', 'executive', 'chat revive ping']
+        
+        # Store log messages for false alarm handling
+        # Format: {log_message_id: {'content': str, 'user': discord.User, 'channel': discord.Channel}}
+        self.flagged_messages: Dict[int, dict] = {}
         
     @commands.Cog.listener()
     async def on_ready(self):
@@ -51,6 +57,9 @@ class ModerationCog(commands.Cog):
                 logger.info("[DEBUG] User has whitelisted role, skipping")
                 return
         
+        # Increment messages analyzed counter
+        self.stats_tracker.increment_analyzed()
+        
         try:
             logger.info(f"[DEBUG] Analyzing message: {message.content[:100]}")
             # Detect scam
@@ -59,12 +68,34 @@ class ModerationCog(commands.Cog):
             
             if is_scam:
                 logger.warning(f"[SCAM DETECTED] Processing message from {message.author.name}")
+                self.stats_tracker.increment_flagged()
                 await self._handle_scam_message(message, confidence, reason)
             else:
                 logger.info("[DEBUG] Message is clean")
                 
         except Exception as e:
             logger.error(f"Error processing message: {e}", exc_info=True)
+    
+    @commands.Cog.listener()
+    async def on_reaction_add(self, reaction: discord.Reaction, user: discord.User):
+        """Handle reactions on log messages for false alarm reporting."""
+        
+        # Ignore bot reactions
+        if user.bot:
+            return
+        
+        # Check if this is a false alarm reaction (❌) on a log message
+        if str(reaction.emoji) == "❌" and reaction.message.id in self.flagged_messages:
+            # Check if user has moderator permissions
+            if not isinstance(user, discord.Member):
+                return
+            
+            if not user.guild_permissions.manage_messages:
+                await user.send("❌ You need 'Manage Messages' permission to report false alarms.")
+                return
+            
+            # Handle false alarm
+            await self._handle_false_alarm(reaction.message, user)
     
     async def _handle_scam_message(
         self, 
@@ -76,6 +107,8 @@ class ModerationCog(commands.Cog):
         
         member = message.author
         guild = message.guild
+        original_channel = message.channel
+        original_content = message.content
         
         # Store original message time in Edmonton timezone
         message_sent_time = message.created_at.astimezone(LOCAL_TZ).strftime("%Y-%m-%d %H:%M:%S %Z")
@@ -108,8 +141,92 @@ class ModerationCog(commands.Cog):
         # Send DM notification to the user
         await self._send_user_notification(member, guild)
         
-        # Send log to private channel
-        await self._send_log(message, member, joined_at, confidence, reason, message_sent_time)
+        # Send log to private channel and store for false alarm handling
+        log_message_id = await self._send_log(message, member, joined_at, confidence, reason, message_sent_time)
+        
+        # Store message data for potential restoration
+        if log_message_id:
+            self.flagged_messages[log_message_id] = {
+                'content': original_content,
+                'user': member,
+                'channel': original_channel,
+                'confidence': confidence,
+                'reason': reason
+            }
+    
+    async def _handle_false_alarm(self, log_message: discord.Message, moderator: discord.Member):
+        """Handle false alarm report - restore message and update stats."""
+        
+        try:
+            message_data = self.flagged_messages.get(log_message.id)
+            if not message_data:
+                await moderator.send("❌ Could not find original message data.")
+                return
+            
+            original_user = message_data['user']
+            original_channel = message_data['channel']
+            original_content = message_data['content']
+            
+            # Increment false alarm counter
+            self.stats_tracker.increment_false_alarm()
+            
+            # Create restoration embed
+            restore_embed = discord.Embed(
+                title="⚠️ False Alarm - Message Restored",
+                description=(
+                    f"A message from {original_user.mention} was incorrectly flagged and has been restored.\n"
+                    f"**Reported by:** {moderator.mention}"
+                ),
+                color=discord.Color.orange(),
+                timestamp=datetime.now(LOCAL_TZ)
+            )
+            
+            restore_embed.add_field(
+                name="Original User",
+                value=f"{original_user.mention} ({original_user.name}#{original_user.discriminator})",
+                inline=False
+            )
+            
+            restore_embed.add_field(
+                name="Message Content",
+                value=original_content[:1024] if original_content else "*No content*",
+                inline=False
+            )
+            
+            restore_embed.set_footer(text=f"False alarm reported by {moderator.name}")
+            
+            # Send restored message to original channel
+            try:
+                await original_channel.send(embed=restore_embed)
+                logger.info(f"[FALSE ALARM] Restored message to {original_channel.name}")
+            except discord.errors.Forbidden:
+                logger.error(f"[FALSE ALARM] Cannot send to {original_channel.name} - missing permissions")
+            
+            # Update the log message to show it was a false alarm
+            updated_embed = log_message.embeds[0]
+            updated_embed.color = discord.Color.orange()
+            updated_embed.title = "⚠️ FALSE ALARM - Message Restored"
+            updated_embed.set_footer(text=f"False alarm reported by {moderator.name} | Message restored to channel")
+            
+            await log_message.edit(embed=updated_embed)
+            await log_message.clear_reactions()
+            
+            # Send confirmation to moderator
+            await moderator.send(
+                f"✅ False alarm reported successfully!\n"
+                f"- Message restored to {original_channel.mention}\n"
+                f"- Stats updated (Total false alarms: {self.stats_tracker.overall_stats['total_false_alarms']})\n"
+                f"- User: {original_user.mention}"
+            )
+            
+            # Remove from tracking
+            del self.flagged_messages[log_message.id]
+            
+            logger.info(f"[FALSE ALARM] Processed by {moderator.name} for message from {original_user.name}")
+            
+        except Exception as e:
+            logger.error(f"[FALSE ALARM] Error handling false alarm: {e}", exc_info=True)
+            await moderator.send(f"❌ Error processing false alarm: {e}")
     
     async def _send_user_notification(self, member: discord.Member, guild: discord.Guild):
         """Send a DM notification to the user whose message was flagged."""
@@ -136,18 +253,9 @@ class ModerationCog(commands.Cog):
             embed.add_field(
                 name="Was this a false alarm?",
                 value=(
-                    "Please feel free to contact the server administrators or moderators. "
-                    "Your message has been logged, and if this was indeed an error, "
-                    "we can review it and restore it if needed."
-                ),
-                inline=False
-            )
-            
-            embed.add_field(
-                name="Need help?",
-                value=(
-                    "Reach out to the server admins through the server's modmail or "
-                    "contact channels. They'll be happy to assist you!"
+                    "Please contact the server moderators. "
+                    "Your message has been logged, and if this was an error, "
+                    "moderators can restore it immediately."
                 ),
                 inline=False
             )
@@ -158,7 +266,6 @@ class ModerationCog(commands.Cog):
             logger.info(f"Successfully sent DM notification to {member.name}")
             
         except discord.errors.Forbidden:
-            # User has DMs disabled or has blocked the bot
             logger.warning(
                 f"Could not send DM to {member.name} (DMs disabled or bot blocked)"
             )
@@ -173,21 +280,21 @@ class ModerationCog(commands.Cog):
         confidence: float,
         reason: str,
         message_sent_time: str
-    ):
-        """Send log to the private logging channel."""
+    ) -> Optional[int]:
+        """Send log to the private logging channel. Returns log message ID."""
         
         log_channel = self.bot.get_channel(Config.LOG_CHANNEL_ID)
         
         if not log_channel:
             logger.error(f"Log channel {Config.LOG_CHANNEL_ID} not found")
-            return
+            return None
         
         try:
-            # Get current detection time in Edmonton timezone
             detected_at = datetime.now(LOCAL_TZ).strftime("%Y-%m-%d %H:%M:%S %Z")
             
             embed = discord.Embed(
                 title="🚨 Scam Message Deleted",
+                description="React with ❌ to mark as false alarm and restore message",
                 color=discord.Color.red(),
                 timestamp=datetime.now(LOCAL_TZ)
             )
@@ -203,7 +310,6 @@ class ModerationCog(commands.Cog):
             embed.add_field(name="Confidence", value=f"{confidence:.2%}", inline=True)
             embed.add_field(name="Channel", value=message.channel.mention, inline=True)
             
-            # Add timestamps
             embed.add_field(name="Message Sent", value=message_sent_time, inline=True)
             embed.add_field(name="Detected At", value=detected_at, inline=True)
             
@@ -213,32 +319,31 @@ class ModerationCog(commands.Cog):
                 inline=False
             )
             
-            # Add user avatar
             if member.avatar:
                 embed.set_thumbnail(url=member.avatar.url)
             
-            # Add footer indicating if DM was sent and logged to CSV
             embed.set_footer(text="User notified via DM | Logged to training dataset")
             
-            # Ping moderator role
             mod_role = message.guild.get_role(Config.MODERATOR_ROLE_ID)
             
             if mod_role:
-                role_mention = mod_role.mention
-                content = f"{role_mention} Spam detected!"
+                content = f"{mod_role.mention} Spam detected!"
             else:
                 logger.warning(f"Moderator role {Config.MODERATOR_ROLE_ID} not found")
                 content = "Spam detected!"
             
-            await log_channel.send(
-                content=content,
-                embed=embed
-            )
+            log_message = await log_channel.send(content=content, embed=embed)
+            
+            # Add reaction for false alarm reporting
+            await log_message.add_reaction("❌")
             
             logger.info(f"Sent log to channel {log_channel.name}")
             
+            return log_message.id
+            
         except Exception as e:
             logger.error(f"Error sending log: {e}", exc_info=True)
+            return None
     
     @commands.command(name='check')
     @commands.has_permissions(administrator=True)
@@ -262,25 +367,98 @@ class ModerationCog(commands.Cog):
     @commands.command(name='stats')
     @commands.has_permissions(administrator=True)
     async def show_stats(self, ctx: commands.Context):
-        """Show bot statistics (Admin only)."""
+        """Show comprehensive bot statistics (Admin only)."""
+        
+        stats = self.stats_tracker.get_comprehensive_stats()
         
         embed = discord.Embed(
-            title="Bot Statistics",
-            color=discord.Color.blue()
+            title="📊 Bot Statistics Dashboard",
+            color=discord.Color.blue(),
+            timestamp=datetime.now(LOCAL_TZ)
         )
         
-        embed.add_field(name="Servers", value=len(self.bot.guilds), inline=True)
-        embed.add_field(name="Model", value=Config.MODEL_NAME, inline=False)
-        embed.add_field(name="Threshold", value=f"{Config.SCAM_THRESHOLD:.2%}", inline=True)
+        # Session Stats
+        embed.add_field(
+            name="📍 Current Session",
+            value=(
+                f"**Uptime:** {stats['session_uptime']}\n"
+                f"**Analyzed:** {stats['session_messages_analyzed']:,}\n"
+                f"**Flagged:** {stats['session_messages_flagged']:,}\n"
+                f"**Detection Rate:** {stats['session_detection_rate']:.2f}%\n"
+                f"**Msg/Hour:** {stats['session_messages_per_hour']:.1f}"
+            ),
+            inline=True
+        )
         
-        # Add dataset stats
-        stats = DatasetLogger.get_dataset_stats()
-        if stats['exists']:
+        # Overall Stats
+        embed.add_field(
+            name="📊 Overall Statistics",
+            value=(
+                f"**Total Uptime:** {stats['total_uptime']}\n"
+                f"**Total Analyzed:** {stats['total_messages_analyzed']:,}\n"
+                f"**Total Flagged:** {stats['total_messages_flagged']:,}\n"
+                f"**Detection Rate:** {stats['total_detection_rate']:.2f}%"
+            ),
+            inline=True
+        )
+        
+        # Accuracy Metrics
+        embed.add_field(
+            name="🎯 Accuracy",
+            value=(
+                f"**False Alarms:** {stats['total_false_alarms']}\n"
+                f"**Accuracy:** {stats['overall_accuracy']:.1f}%\n"
+                f"**True Positives:** {stats['total_messages_flagged'] - stats['total_false_alarms']}"
+            ),
+            inline=True
+        )
+        
+        # Dataset Info
+        embed.add_field(
+            name="💾 Training Dataset",
+            value=(
+                f"**Samples:** {stats['dataset_total']:,}\n"
+                f"**Size:** {stats['dataset_size_mb']:.2f} MB\n"
+                f"**Format:** CSV (UTF-8)"
+            ),
+            inline=True
+        )
+        
+        # Detection Methods
+        if stats['detection_methods']:
+            methods_text = "\n".join([
+                f"**{method}:** {count}" 
+                for method, count in stats['detection_methods'].items()
+            ])
             embed.add_field(
-                name="Dataset Size", 
-                value=f"{stats['total_messages']} flagged messages", 
+                name="🔍 Detection Methods",
+                value=methods_text,
                 inline=True
             )
+        
+        # System Resources
+        if stats['system']:
+            sys = stats['system']
+            embed.add_field(
+                name="💻 Bot Resources",
+                value=(
+                    f"**CPU:** {sys.get('process_cpu_percent', 0):.1f}%\n"
+                    f"**RAM:** {sys.get('process_memory_mb', 0):.1f} MB"
+                ),
+                inline=True
+            )
+        
+        # Bot Config
+        embed.add_field(
+            name="⚙️ Configuration",
+            value=(
+                f"**Servers:** {len(self.bot.guilds)}\n"
+                f"**Threshold:** {Config.SCAM_THRESHOLD:.0%}"
+            ),
+            inline=True
+        )
+        
+        embed.set_footer(text="React ❌ on log messages to report false alarms")
         
         await ctx.send(embed=embed)
     
@@ -302,10 +480,9 @@ class ModerationCog(commands.Cog):
         )
         
         embed.add_field(name="Total Samples", value=str(stats['total_messages']), inline=True)
-        embed.add_field(name="File Size", value=f"{stats['file_size']:,} bytes", inline=True)
+        embed.add_field(name="File Size", value=f"{stats['file_size']:,} bytes ({stats['file_size']/1024/1024:.2f} MB)", inline=True)
         embed.add_field(name="Format", value="CSV (UTF-8)", inline=True)
         
-        # Show detection method breakdown
         methods = stats.get('detection_methods', {})
         if methods:
             method_breakdown = "\n".join([f"• {method}: {count}" for method, count in methods.items()])
