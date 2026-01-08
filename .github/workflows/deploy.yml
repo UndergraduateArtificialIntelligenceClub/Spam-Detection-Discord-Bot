@@ -1,47 +1,46 @@
-name: Deploy Bot
-
-on:
-  push:
-    branches: [ "main" ]
-
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    steps:
+steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # Step 1: Copy files to the bot (Through the Gateway)
+      # [NEW STEP] Stop the bot BEFORE copying files
+      # This prevents the "Bus Error" because no program is reading the files
+      - name: Stop Bot Service
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.BOT_HOST }}
+          username: ${{ secrets.BOT_USER }}
+          key: ${{ secrets.BOT_KEY }}
+          proxy_host: ${{ secrets.GATEWAY_HOST }}
+          proxy_username: ${{ secrets.BOT_USER }}
+          proxy_key: ${{ secrets.GATEWAY_KEY }}
+          script: sudo systemctl stop discordbot
+
+      # [EXISTING STEP] Copy files
       - name: Copy files via SCP
         uses: appleboy/scp-action@master
         with:
-          # The Target (The Spambot)
           host: ${{ secrets.BOT_HOST }}
           username: ${{ secrets.BOT_USER }}
           key: ${{ secrets.BOT_KEY }}
-          # The Gateway (The Jump)
           proxy_host: ${{ secrets.GATEWAY_HOST }}
           proxy_username: ${{ secrets.BOT_USER }}
           proxy_key: ${{ secrets.GATEWAY_KEY }}
-          # Files to copy
           source: "cogs,data,utils,bot.py,config.py,requirements.txt"
           target: "/home/ubuntu/bot"
 
-      # Step 2: Install requirements and Restart (Through the Gateway)
-      - name: Install & Restart
+      # [EXISTING STEP] Install & Start
+      - name: Install & Start
         uses: appleboy/ssh-action@master
         with:
-          # The Target
           host: ${{ secrets.BOT_HOST }}
           username: ${{ secrets.BOT_USER }}
           key: ${{ secrets.BOT_KEY }}
-          # The Gateway
           proxy_host: ${{ secrets.GATEWAY_HOST }}
           proxy_username: ${{ secrets.BOT_USER }}
           proxy_key: ${{ secrets.GATEWAY_KEY }}
-          # The Commands
           script: |
             cd /home/ubuntu/bot
             source venv/bin/activate
             pip install -r requirements.txt
-            sudo systemctl restart discordbot
+            # Use 'start' instead of 'restart' since we stopped it earlier
+            sudo systemctl start discordbot
