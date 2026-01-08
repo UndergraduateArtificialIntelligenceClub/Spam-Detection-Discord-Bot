@@ -1,9 +1,17 @@
-steps:
+name: Deploy Bot
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # [NEW STEP] Stop the bot BEFORE copying files
-      # This prevents the "Bus Error" because no program is reading the files
+      # --- STEP 1: Stop the bot to prevent Bus Error ---
       - name: Stop Bot Service
         uses: appleboy/ssh-action@master
         with:
@@ -15,7 +23,7 @@ steps:
           proxy_key: ${{ secrets.GATEWAY_KEY }}
           script: sudo systemctl stop discordbot
 
-      # [EXISTING STEP] Copy files
+      # --- STEP 2: Copy new files ---
       - name: Copy files via SCP
         uses: appleboy/scp-action@master
         with:
@@ -25,10 +33,11 @@ steps:
           proxy_host: ${{ secrets.GATEWAY_HOST }}
           proxy_username: ${{ secrets.BOT_USER }}
           proxy_key: ${{ secrets.GATEWAY_KEY }}
+          # Make sure these folder/file names match your repo exactly
           source: "cogs,data,utils,bot.py,config.py,requirements.txt"
           target: "/home/ubuntu/bot"
 
-      # [EXISTING STEP] Install & Start
+      # --- STEP 3: Install requirements & Start bot ---
       - name: Install & Start
         uses: appleboy/ssh-action@master
         with:
@@ -42,5 +51,5 @@ steps:
             cd /home/ubuntu/bot
             source venv/bin/activate
             pip install -r requirements.txt
-            # Use 'start' instead of 'restart' since we stopped it earlier
+            # We use 'start' because we stopped it in Step 1
             sudo systemctl start discordbot
