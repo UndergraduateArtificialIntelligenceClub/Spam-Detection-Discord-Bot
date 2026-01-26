@@ -23,7 +23,7 @@ class ModerationCog(commands.Cog):
         self.scam_detector = ScamDetector()
         self.dataset_logger = DatasetLogger()
         self.stats_tracker = StatsTracker()
-        self.whitelisted_roles = ['Admin', 'Moderator', 'executive', 'chat revive ping', 'camouflage', 'Advisor', '👑', 'stats nerd', 'assembly GOD', 'regex GOD', 'the negotiator', 'AutoRecruiter', 'Sponsor', 'Industry Associate', 'Project Leads', 'AI Due Diligence Team', 'Palm Pilot 2.0 Team', 'RAG Bot Team', 'Alzheimer AI Team', 'Crypto Forecast Team', 'Clubmate AI Team', '2425 Executives', 'Crossy Road Bot Team', 'Industrial Safety Bot Team', 'Past UAIS Project Team', ]
+        self.whitelisted_roles = ['Admin', 'Moderator', 'executive', 'chat revive ping', 'camouflage', 'Advisor', '👑', 'stats nerd', 'assembly GOD', 'regex GOD', 'the negotiator', 'AutoRecruiter', 'Sponsor', 'Industry Associate', 'Project Leads', 'AI Due Diligence Team', 'Palm Pilot 2.0 Team', 'RAG Bot Team', 'Alzheimer AI Team', 'Crypto Forecast Team', 'Clubmate AI Team', '2425 Executives', 'Crossy Road Bot Team', 'Industrial Safety Bot Team', 'Past UAIS Project Team', 'VeriRAG Team']
         
         # Store log messages for false alarm handling
         # Format: {log_message_id: {'content': str, 'user': discord.User, 'channel': discord.Channel}}
